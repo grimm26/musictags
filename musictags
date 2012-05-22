@@ -1,0 +1,120 @@
+#!/usr/bin/perl
+# Dependencies:
+# id3:  http://lly.org/~rcw/abcde/page
+# vorbiscomment: http://www.vorbis.com
+
+use feature "switch";
+use feature 'say';
+use File::Basename;
+use Term::UI;
+use Term::ReadLine;
+use strict;
+
+my $song = shift;
+my ($filename,$directory,$extension) = fileparse($song, qr/\.[^.]*/);
+
+my %tags = (
+    title   => '',
+    album   => '',
+    artist  => '',
+    date    => '',
+    genre   => '',
+    );
+
+given( lc($extension) ) {
+    when (".ogg") {
+        $tags{'tracknumber'} = '';
+        &getOggTags(\%tags,$song);
+    }
+    when (".mp3") {
+        $tags{'track'} = '';
+        &getMp3Tags(\%tags,$song);
+    }
+    default {say 'What kind of file is this?'};
+}
+
+say "$filename:";
+&queryForChanges(\%tags);
+
+my $term = Term::ReadLine->new('query');
+my $commit = $term->ask_yn( 
+    prompt   => 'Commit changes?',
+    default  => 'y'
+    );
+
+if ($commit eq 'y') {
+    given (lc($extension) ) {
+    # left off
+say 'we done';
+
+## funcs
+sub queryForChanges {
+    my $rh_tags = shift;
+
+    my $term = Term::ReadLine->new('query');
+    my $done = 0;
+    my @choices;
+    my $i = 0;
+    foreach my $tag (sort keys %{$rh_tags}) {
+        $choices[$i] = "$tag : $rh_tags->{$tag}";
+        $i++;
+    }
+    push @choices,'Done.';
+    until ($done) {
+        my $reply = $term->get_reply( 
+            prompt => 'Edit which tag? ',
+            choices => \@choices,
+            default => scalar(@choices)
+        );
+        given ($reply) {
+            $done = 1 when "Done.";
+            default {
+                my $update = $term->get_reply(
+                    prompt => "$reply : [$rh_tags->{$reply}] ",
+                    default => $rh_tags->{$reply}
+                );
+                $rh_tags->{$reply} = $update;
+            }
+        }
+    }
+}
+
+sub getOggTags {
+    my $rh_tags = shift;
+    my $file = shift;
+
+    open OGGTAGS,"/usr/bin/vorbiscomment -l $file |" or die "Could not retrieve tags for $file\n";
+    while(<OGGTAGS>) {
+        next if /^\s*$/;
+        chomp;
+        my ($key,$value) = split /=\s*/,$_,2;
+        $rh_tags->{lc($key)} = $value;
+    }
+    close OGGTAGS;
+}
+
+sub getMp3Tags {
+    my $rh_tags = shift;
+    my $file = shift;
+
+    open MP3TAGS,"/usr/bin/id3 -R -l $file |" or die "Could not retrieve tags for $file\n";
+    while(<MP3TAGS>) {
+        next if /^\s*$/;
+        chomp;
+        my ($key,$value) = split /:\s*/,$_,2;
+        $rh_tags->{lc($key)} = $value;
+    }
+    close MP3TAGS;
+}
+
+__END__
+sub guessTags {
+    my $file = shift;
+    my $rh_tags = shift;
+
+    my $track = 0;
+    my $title = 0;
+    my $artist = 0;
+    given($file) {
+        when(/^(\d+)\-([^\.]+)\./) {
+            $track = $1;
